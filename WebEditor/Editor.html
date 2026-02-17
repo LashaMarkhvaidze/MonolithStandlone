@@ -100,10 +100,7 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
             position: absolute;
         }
 
-        .w2ui-layout > div .w2ui-panel .w2ui-panel-content {
-            color:
-                 
-        }
+
 
         #overlay {
             background-color: rgba(0, 0, 0, 0.5);
@@ -385,6 +382,40 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
     </div>
     <div id="tabAIChat" class="tab">
     </div>
+    <div id="tabVersionControl" class="tab">
+        <h3>Version Control & Locking</h3>
+        <div style="margin-bottom: 20px;">
+            <h4>Current File Info</h4>
+            <div id="vcCurrentInfo" style="padding: 10px; background: #f5f5f5; border-radius: 5px;">
+                <p><strong>Version:</strong> <span id="vcVersion">-</span></p>
+                <p><strong>State:</strong> <span id="vcState">-</span></p>
+                <p><strong>Lock Status:</strong> <span id="vcLockStatus">-</span></p>
+            </div>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <h4>Locking</h4>
+            <label>User: <input type="text" id="vcUser" value="system" style="padding: 5px; margin-right: 10px;"></label>
+            <button class="btn" onclick="lockCurrentCode()">Lock</button>
+            <button class="btn" onclick="unlockCurrentCode()">Unlock</button>
+            <button class="btn" onclick="refreshVCInfo()">Refresh</button>
+        </div>
+        
+        <div style="margin-bottom: 20px;">
+            <h4>Change State</h4>
+            <select id="vcStateSelect" style="padding: 5px; margin-right: 10px;">
+                <option value="draft">Draft</option>
+                <option value="locked">Locked</option>
+                <option value="published">Published</option>
+                <option value="archived">Archived</option>
+            </select>
+            <button class="btn" onclick="changeCurrentState()">Change State</button>
+        </div>
+        
+        <div id="vcMessages" style="padding: 10px; background: #f9f9f9; border-radius: 5px; max-height: 200px; overflow-y: auto;">
+            <p style="color: #666;">Messages will appear here...</p>
+        </div>
+    </div>
 </div>
 
 <div id="bottomDiv" style="display: none">
@@ -454,7 +485,11 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
                     resizable: true,
                     style: 'background: #4679bd; color: #fff; padding-left: 20px; padding-top: 10px',
                     content:
-                        '<b>Monolith Editor</b><span style="padding-left: 20px;" id="titleinfo"></span><span id="editorSettings" class="box" style="float:right; margin-right: 20px; margin-top: -4px">Show Editor Settings</span>'
+                        '<b>Monolith Editor</b><span style="padding-left: 20px;" id="titleinfo"></span>' +
+                        '<span id="versionInfo" style="padding-left: 20px; color: #ffd700;"></span>' +
+                        '<span id="lockInfo" style="padding-left: 20px; color: #ff6b6b;"></span>' +
+                        '<span id="stateInfo" style="padding-left: 20px; color: #51cf66;"></span>' +
+                        '<span id="editorSettings" class="box" style="float:right; margin-right: 20px; margin-top: -4px">Show Editor Settings</span>'
                 }, {
                     type: 'left',
                     size: 250,
@@ -487,6 +522,9 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
                             }, {
                                 id: 'tabAIChat',
                                 caption: 'AI Chat',
+                            }, {
+                                id: 'tabVersionControl',
+                                caption: 'Version Control',
                             }
                         ],
                         onClick: tabClickEvent
@@ -793,6 +831,8 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
                 historyTabLoad(openScriptId);
         } else if (event.target === "tabAIChat") {
             initAIChat();
+        } else if (event.target === "tabVersionControl") {
+            refreshVCInfo();
         }
     }
 
@@ -2113,6 +2153,154 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
         var provider = $(this).val();
         updateModelOptionsForProvider(provider);
     });
+
+    // ============== Version Control & Locking Functions ==============
+    
+    function getCurrentCodeId() {
+        if (!openScriptId) {
+            return null;
+        }
+        var id = openScriptId.toString();
+        if (id.indexOf('es') == 0) id = id.substr(2);
+        if (id.indexOf('v') == 0) id = id.substr(1);
+        if (id.indexOf('l') == 0) id = id.substr(1);
+        return id;
+    }
+    
+    function addVCMessage(message, type) {
+        var color = type === 'error' ? '#f44336' : type === 'success' ? '#4caf50' : '#666';
+        var time = new Date().toLocaleTimeString();
+        var msg = '<p style="color: ' + color + '; margin: 5px 0;">[' + time + '] ' + message + '</p>';
+        $('.w2ui-panel-content #vcMessages').prepend(msg);
+    }
+    
+    function refreshVCInfo() {
+        var codeid = getCurrentCodeId();
+        if (!codeid) {
+            addVCMessage('No file selected', 'error');
+            return;
+        }
+        
+        // Get state and version
+        $.ajax({
+            url: "WebApi.ashx?req=GetCodeState&codeid=" + codeid,
+            dataType: 'json',
+            type: "POST"
+        }).done(function(data) {
+            if (data.status === 'SUCCESS') {
+                $('.w2ui-panel-content #vcVersion').text('v' + data.version);
+                $('.w2ui-panel-content #vcState').text(data.state);
+                $('.w2ui-panel-content #vcStateSelect').val(data.state);
+                
+                // Update top bar
+                $('#versionInfo').text('v' + data.version);
+                $('#stateInfo').text('State: ' + data.state);
+            }
+        });
+        
+        // Get lock status
+        $.ajax({
+            url: "WebApi.ashx?req=GetLockStatus&codeid=" + codeid,
+            dataType: 'json',
+            type: "POST"
+        }).done(function(data) {
+            if (data.status === 'LOCKED') {
+                $('.w2ui-panel-content #vcLockStatus').html('[LOCKED] by <strong>' + data.locked_by + '</strong> at ' + data.locked_at);
+                $('#lockInfo').text('[LOCKED by ' + data.locked_by + ']');
+            } else {
+                $('.w2ui-panel-content #vcLockStatus').text('[UNLOCKED]');
+                $('#lockInfo').text('');
+            }
+        });
+        
+        addVCMessage('Info refreshed', 'success');
+    }
+    
+    function lockCurrentCode() {
+        var codeid = getCurrentCodeId();
+        if (!codeid) {
+            addVCMessage('No file selected', 'error');
+            return;
+        }
+        
+        var user = $('.w2ui-panel-content #vcUser').val() || 'system';
+        
+        $.ajax({
+            url: "WebApi.ashx?req=LockCode&codeid=" + codeid + "&user=" + encodeURIComponent(user),
+            dataType: 'json',
+            type: "POST"
+        }).done(function(data) {
+            if (data.status === 'SUCCESS') {
+                addVCMessage('[OK] ' + data.message, 'success');
+                refreshVCInfo();
+            } else {
+                addVCMessage('[ERROR] ' + data.message, 'error');
+            }
+        }).fail(function(xhr, status) {
+            addVCMessage('Failed to lock: ' + status, 'error');
+        });
+    }
+    
+    function unlockCurrentCode() {
+        var codeid = getCurrentCodeId();
+        if (!codeid) {
+            addVCMessage('No file selected', 'error');
+            return;
+        }
+        
+        var user = $('.w2ui-panel-content #vcUser').val() || 'system';
+        
+        $.ajax({
+            url: "WebApi.ashx?req=UnlockCode&codeid=" + codeid + "&user=" + encodeURIComponent(user),
+            dataType: 'json',
+            type: "POST"
+        }).done(function(data) {
+            if (data.status === 'SUCCESS') {
+                addVCMessage('[OK] ' + data.message, 'success');
+                refreshVCInfo();
+            } else {
+                addVCMessage('[ERROR] ' + data.message, 'error');
+            }
+        }).fail(function(xhr, status) {
+            addVCMessage('Failed to unlock: ' + status, 'error');
+        });
+    }
+    
+    function changeCurrentState() {
+        var codeid = getCurrentCodeId();
+        if (!codeid) {
+            addVCMessage('No file selected', 'error');
+            return;
+        }
+        
+        var state = $('.w2ui-panel-content #vcStateSelect').val();
+        var user = $('.w2ui-panel-content #vcUser').val() || 'system';
+        
+        $.ajax({
+            url: "WebApi.ashx?req=ChangeCodeState&codeid=" + codeid + "&state=" + state + "&user=" + encodeURIComponent(user),
+            dataType: 'json',
+            type: "POST"
+        }).done(function(data) {
+            if (data.status === 'SUCCESS') {
+                addVCMessage('[OK] State changed from "' + data.old_state + '" to "' + data.new_state + '"', 'success');
+                refreshVCInfo();
+            } else {
+                addVCMessage('[ERROR] ' + data.message, 'error');
+            }
+        }).fail(function(xhr, status) {
+            addVCMessage('Failed to change state: ' + status, 'error');
+        });
+    }
+    
+    // Auto-refresh version info when file is loaded
+    var originalLoadScript = loadScript;
+    loadScript = function(id, readonly) {
+        originalLoadScript(id, readonly);
+        // Small delay to let the file load
+        setTimeout(function() {
+            refreshVCInfo();
+        }, 500);
+    };
 </script>
 </body>
 </html>

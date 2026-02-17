@@ -23,6 +23,10 @@ create table if not exists code (
     folderid integer not null,
     codevalue text not null,
     codetype text nont null,
+    version integer not null default 1,
+    state text not null default 'draft',
+    locked_by text,
+    locked_at text,
     FOREIGN KEY(folderid) REFERENCES folder(folderid)    
 );
 """
@@ -43,6 +47,9 @@ create table if not exists codehistory (
     codeid integer not null,
     codevalue text not null,
     changedate text not null,
+    version integer not null default 1,
+    changed_by text,
+    state text,
     FOREIGN KEY(codeid) REFERENCES code(codeid)
 )
 """
@@ -64,6 +71,20 @@ create table if not exists aisettings (
     isactive integer not null default 0
 )
 """
+
+# Migration SQL to add new columns to existing tables
+code_migration_sql = [
+    "ALTER TABLE code ADD COLUMN version integer not null default 1",
+    "ALTER TABLE code ADD COLUMN state text not null default 'draft'",
+    "ALTER TABLE code ADD COLUMN locked_by text",
+    "ALTER TABLE code ADD COLUMN locked_at text"
+]
+
+codehistory_migration_sql = [
+    "ALTER TABLE codehistory ADD COLUMN version integer not null default 1",
+    "ALTER TABLE codehistory ADD COLUMN changed_by text",
+    "ALTER TABLE codehistory ADD COLUMN state text"
+]
 
 folder_init_sql = """
 insert into folder (foldername)
@@ -96,6 +117,20 @@ class dbhelper(object):
             c.execute(code_init_sql)
             c.execute(remote_create_sql)
             c.execute(aisettings_create_sql)
+            
+            # Run migrations for existing databases
+            for migration in code_migration_sql:
+                try:
+                    c.execute(migration)
+                except:
+                    pass  # Column already exists
+            
+            for migration in codehistory_migration_sql:
+                try:
+                    c.execute(migration)
+                except:
+                    pass  # Column already exists
+            
             conn.commit()
         except Error as e:
             traceback.print_exc(file=sys.stdout)
@@ -193,7 +228,7 @@ class dbhelper(object):
         if codeid.startswith('l'): codeid = codeid[1:]
         conn = self.lconn()
         c = conn.cursor()
-        sf = "select codeid,codename,folderid,codetype,codevalue from code where codeid = ?"
+        sf = "select codeid,codename,folderid,codetype,codevalue,version,state,locked_by,locked_at from code where codeid = ?"
         c.execute(sf,[codeid])
         row = c.fetchone()
         if not row: return '{ "Text": "Failed to locate code ' + str(codeid) + ' " }'
@@ -206,7 +241,11 @@ class dbhelper(object):
             'CodeIsSystem': True,
             'CodeType': row[3],
             'CodeValue': row[4],
-            'CodeRevision': None
+            'CodeRevision': None,
+            'Version': row[5] if len(row) > 5 else 1,
+            'State': row[6] if len(row) > 6 else 'draft',
+            'LockedBy': row[7] if len(row) > 7 else None,
+            'LockedAt': row[8] if len(row) > 8 else None
         }
         if conn: conn.close()
         return json.dumps(ret)
@@ -225,19 +264,44 @@ class dbhelper(object):
         if conn: conn.close()
         return code
 
-    def SaveCode(self,codeid,code):
+    def SaveCode(self,codeid,code,user='system'):
         if not codeid or not code: return ''
         codeid = str(codeid)
         if codeid.startswith('l'): codeid = codeid[1:]
         conn = self.lconn()
         c = conn.cursor()
+        
+        # Check if code is locked by someone else
+        c.execute("SELECT locked_by, locked_at FROM code WHERE codeid = ?", [codeid])
+        lock_info = c.fetchone()
+        if lock_info and lock_info[0] and lock_info[0] != user:
+            if conn: conn.close()
+            return f'FAILED: Code is locked by {lock_info[0]} since {lock_info[1]}'
+        
         dt = datetime.datetime.now().isoformat()
-        archive = "insert into codehistory (codeid,codevalue,changedate) select codeid,codevalue,'" + dt + "' from code where codeid = ?"
-        c.execute(archive,[codeid])
-        if not c.rowcount: return 'FAILED to insert codehistory'
-        up = "update code set codevalue = ? where codeid = ?"
-        c.execute(up,[code,codeid])
-        if not c.rowcount: return 'FAILED to update code'
+        
+        # Archive current version with version number and state
+        archive = """
+        INSERT INTO codehistory (codeid, codevalue, changedate, version, changed_by, state) 
+        SELECT codeid, codevalue, ?, version, ?, state 
+        FROM code WHERE codeid = ?
+        """
+        c.execute(archive, [dt, user, codeid])
+        if not c.rowcount: 
+            if conn: conn.close()
+            return 'FAILED to insert codehistory'
+        
+        # Update code and increment version
+        up = """
+        UPDATE code 
+        SET codevalue = ?, version = version + 1 
+        WHERE codeid = ?
+        """
+        c.execute(up, [code, codeid])
+        if not c.rowcount: 
+            if conn: conn.close()
+            return 'FAILED to update code'
+        
         conn.commit()
         if conn: conn.close()
         return 'SUCCESS'
@@ -415,6 +479,155 @@ class dbhelper(object):
         cursor.close()
         db.close()
         return ret
+
+    ##################################### Version Locking & State Machine ##############################################
+    
+    def LockCode(self, codeid, user='system'):
+        """Lock a code file for editing"""
+        if not codeid or not user: 
+            return json.dumps({'status': 'FAILED', 'message': 'Missing codeid or user'})
+        
+        codeid = str(codeid)
+        if codeid.startswith('l'): codeid = codeid[1:]
+        
+        conn = self.lconn()
+        c = conn.cursor()
+        
+        # Check if already locked
+        c.execute("SELECT locked_by, locked_at FROM code WHERE codeid = ?", [codeid])
+        lock_info = c.fetchone()
+        
+        if lock_info and lock_info[0]:
+            if lock_info[0] == user:
+                if conn: conn.close()
+                return json.dumps({'status': 'SUCCESS', 'message': 'Already locked by you'})
+            else:
+                if conn: conn.close()
+                return json.dumps({
+                    'status': 'FAILED', 
+                    'message': f'Code is locked by {lock_info[0]} since {lock_info[1]}'
+                })
+        
+        # Lock the code
+        dt = datetime.datetime.now().isoformat()
+        c.execute("UPDATE code SET locked_by = ?, locked_at = ? WHERE codeid = ?", [user, dt, codeid])
+        conn.commit()
+        if conn: conn.close()
+        
+        return json.dumps({'status': 'SUCCESS', 'message': f'Locked by {user}'})
+    
+    def UnlockCode(self, codeid, user='system'):
+        """Unlock a code file"""
+        if not codeid: 
+            return json.dumps({'status': 'FAILED', 'message': 'Missing codeid'})
+        
+        codeid = str(codeid)
+        if codeid.startswith('l'): codeid = codeid[1:]
+        
+        conn = self.lconn()
+        c = conn.cursor()
+        
+        # Check if locked by this user
+        c.execute("SELECT locked_by FROM code WHERE codeid = ?", [codeid])
+        lock_info = c.fetchone()
+        
+        if lock_info and lock_info[0] and lock_info[0] != user:
+            if conn: conn.close()
+            return json.dumps({
+                'status': 'FAILED', 
+                'message': f'Cannot unlock - locked by {lock_info[0]}'
+            })
+        
+        # Unlock the code
+        c.execute("UPDATE code SET locked_by = NULL, locked_at = NULL WHERE codeid = ?", [codeid])
+        conn.commit()
+        if conn: conn.close()
+        
+        return json.dumps({'status': 'SUCCESS', 'message': 'Unlocked'})
+    
+    def GetLockStatus(self, codeid):
+        """Get lock status of a code file"""
+        if not codeid: 
+            return json.dumps({'status': 'FAILED', 'message': 'Missing codeid'})
+        
+        codeid = str(codeid)
+        if codeid.startswith('l'): codeid = codeid[1:]
+        
+        conn = self.lconn()
+        c = conn.cursor()
+        c.execute("SELECT locked_by, locked_at FROM code WHERE codeid = ?", [codeid])
+        lock_info = c.fetchone()
+        if conn: conn.close()
+        
+        if lock_info and lock_info[0]:
+            return json.dumps({
+                'status': 'LOCKED',
+                'locked_by': lock_info[0],
+                'locked_at': lock_info[1]
+            })
+        else:
+            return json.dumps({'status': 'UNLOCKED'})
+    
+    def ChangeCodeState(self, codeid, new_state, user='system'):
+        """Change the state of a code file (draft, locked, published, archived)"""
+        valid_states = ['draft', 'locked', 'published', 'archived']
+        
+        if new_state not in valid_states:
+            return json.dumps({
+                'status': 'FAILED', 
+                'message': f'Invalid state. Must be one of: {", ".join(valid_states)}'
+            })
+        
+        codeid = str(codeid)
+        if codeid.startswith('l'): codeid = codeid[1:]
+        
+        conn = self.lconn()
+        c = conn.cursor()
+        
+        # Get current state
+        c.execute("SELECT state FROM code WHERE codeid = ?", [codeid])
+        current = c.fetchone()
+        
+        if not current:
+            if conn: conn.close()
+            return json.dumps({'status': 'FAILED', 'message': 'Code not found'})
+        
+        old_state = current[0]
+        
+        # Update state
+        c.execute("UPDATE code SET state = ? WHERE codeid = ?", [new_state, codeid])
+        conn.commit()
+        if conn: conn.close()
+        
+        return json.dumps({
+            'status': 'SUCCESS',
+            'old_state': old_state,
+            'new_state': new_state,
+            'changed_by': user
+        })
+    
+    def GetCodeState(self, codeid):
+        """Get the current state of a code file"""
+        if not codeid: 
+            return json.dumps({'status': 'FAILED', 'message': 'Missing codeid'})
+        
+        codeid = str(codeid)
+        if codeid.startswith('l'): codeid = codeid[1:]
+        
+        conn = self.lconn()
+        c = conn.cursor()
+        c.execute("SELECT state, version FROM code WHERE codeid = ?", [codeid])
+        info = c.fetchone()
+        if conn: conn.close()
+        
+        if info:
+            return json.dumps({
+                'status': 'SUCCESS',
+                'state': info[0],
+                'version': info[1]
+            })
+        else:
+            return json.dumps({'status': 'FAILED', 'message': 'Code not found'})
 
     ##################################### AI Settings Code ##############################################
     def SaveAISettings(self, provider, apikey, model):

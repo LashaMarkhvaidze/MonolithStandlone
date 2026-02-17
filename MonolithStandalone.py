@@ -67,7 +67,8 @@ class MonolithHandler(BaseHTTPRequestHandler):
             if 'req' in qs:
                 qvar = qs['req'][0]
                 # Set content type based on request type - must be done before writing
-                if qvar in ['SaveAISettings', 'GetAISettings', 'AIChat', 'GetAIModels']:
+                if qvar in ['SaveAISettings', 'GetAISettings', 'AIChat', 'GetAIModels', 
+                           'LockCode', 'UnlockCode', 'GetLockStatus', 'ChangeCodeState', 'GetCodeState']:
                     self._set_headers('application/json')
                 else:
                     self._set_headers('text/html')
@@ -319,6 +320,35 @@ class MonolithHandler(BaseHTTPRequestHandler):
                     except Exception as ex:
                         error_msg = str(ex) + "\n" + traceback.format_exc()
                         self.wfile.write(json.dumps({'status': 'FAILED', 'message': error_msg}).encode('utf-8'))
+                    return
+                elif qvar == 'LockCode':
+                    codeid = qs.get('codeid', [''])[0]
+                    user = qs.get('user', ['system'])[0]
+                    r = self.db.LockCode(codeid, user)
+                    self.wfile.write(r.encode('utf-8'))
+                    return
+                elif qvar == 'UnlockCode':
+                    codeid = qs.get('codeid', [''])[0]
+                    user = qs.get('user', ['system'])[0]
+                    r = self.db.UnlockCode(codeid, user)
+                    self.wfile.write(r.encode('utf-8'))
+                    return
+                elif qvar == 'GetLockStatus':
+                    codeid = qs.get('codeid', [''])[0]
+                    r = self.db.GetLockStatus(codeid)
+                    self.wfile.write(r.encode('utf-8'))
+                    return
+                elif qvar == 'ChangeCodeState':
+                    codeid = qs.get('codeid', [''])[0]
+                    state = qs.get('state', [''])[0]
+                    user = qs.get('user', ['system'])[0]
+                    r = self.db.ChangeCodeState(codeid, state, user)
+                    self.wfile.write(r.encode('utf-8'))
+                    return
+                elif qvar == 'GetCodeState':
+                    codeid = qs.get('codeid', [''])[0]
+                    r = self.db.GetCodeState(codeid)
+                    self.wfile.write(r.encode('utf-8'))
                     return
                 else:
                     print ('Unknown request ' + str(qs['req']))
