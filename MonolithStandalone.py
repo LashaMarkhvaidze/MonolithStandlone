@@ -1,9 +1,8 @@
-from BaseHTTPServer import BaseHTTPRequestHandler, HTTPServer
-import SocketServer
+from http.server import BaseHTTPRequestHandler
+import socketserver
 import json
-import urllib
 from dbhelper import dbhelper
-import urlparse
+from urllib.parse import urlparse, parse_qs
 import traceback
 import os
 import re
@@ -16,7 +15,7 @@ class MonolithHandler(BaseHTTPRequestHandler):
 
     def preload(self):
         if not self.editorhtml:
-            f = open('WebEditor/Editor.html','r')
+            f = open('WebEditor/Editor.html','r', encoding='utf-8')
             l = f.read()
             f.close()
             self.editorhtml = l
@@ -32,9 +31,9 @@ class MonolithHandler(BaseHTTPRequestHandler):
         self.preload()        
         if uripath == '/':
             self._set_headers()
-            self.wfile.write(self.editorhtml)
+            self.wfile.write(self.editorhtml.encode('utf-8'))
         else:
-            a = urlparse.urlparse(uripath)
+            a = urlparse(uripath)
             fn = a.path[1:]
             fpath = "WebEditor/" + fn
             if os.path.exists(fpath):
@@ -60,38 +59,38 @@ class MonolithHandler(BaseHTTPRequestHandler):
         
     def do_POST(self):
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
-        post_data = self.rfile.read(content_length) # <--- Gets the data itself
+        post_data = self.rfile.read(content_length).decode('utf-8') # <--- Gets the data itself
         self._set_headers()
         uripath = self.path
         #POST /WebApi.ashx?req=Tree&xxxallowexception=1
         if uripath.lower().startswith("/webapi.ashx"):
-            qs = urlparse.parse_qs(urlparse.urlparse(uripath).query)
+            qs = parse_qs(urlparse(uripath).query)
             if 'req' in qs:
                 qvar = qs['req'][0]
                 if qvar == 'Tree':
                     r = self.db.GetTreePath(None)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'Code':
                     #url: "WebApi.ashx?req=Code&id=" + id + '&xxxallowexception=1',
                     codeid = qs['id'][0]
                     r = self.db.GetCode(codeid)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'SaveCode':
-                    code = urlparse.parse_qs(post_data)['code'][0]
+                    code = parse_qs(post_data)['code'][0]
                     codeid = qs['codeid'][0]
                     r = self.db.SaveCode(codeid,code)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'RenameCode':
                     pid = qs['pid'][0]
                     codename = qs['codename'][0]
                     r = self.db.RenameCode(pid,codename)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'NewScope':
                     pid = qs['pid'][0]
                     scopename = qs['scopename'][0]
                     issystem = qs['issystem'][0]
                     r = self.db.NewScope(pid,scopename,issystem)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'NewCode':
                     pid = qs['pid'][0]
                     codename = qs['codename'][0]
@@ -99,42 +98,42 @@ class MonolithHandler(BaseHTTPRequestHandler):
                     codetype = qs['codetype'][0]
                     isversioned = qs['isversioned'][0]
                     r = self.db.NewCode(pid,codename,issystem,codetype,isversioned)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'MoveCode':
                     codeID = qs['codeID'][0]
                     newScopeID = qs['newScopeID'][0]
                     r = self.db.MoveCode(codeID,newScopeID)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'CodeHistory':
                     codeid = qs['codeid'][0]
                     r = self.db.CodeHistory(codeid)
-                    self.wfile.write(r)
+                    self.wfile.write(r.encode('utf-8'))
                 elif qvar == 'CodeDemo':
-                    code = urlparse.parse_qs(post_data)['code'][0]
+                    code = parse_qs(post_data)['code'][0]
                     try:
                         compile(code,'codedemo','exec')
                     except Exception as ex:
                         m = str(ex) + "\n" + traceback.format_exc()    
-                        self.wfile.write(m)
+                        self.wfile.write(m.encode('utf-8'))
                     if not 'def Test():' in code:
                         return 'Code is missing test function!'
                     try:
                         newcode = code + "\n" + "a = Test()"
                         from PythonRunner import PythonRunner
                         mod = PythonRunner.PythonRunDict('test',newcode)
-                        self.wfile.write(mod.__dict__.get('a','FAILED'))
+                        self.wfile.write(str(mod.__dict__.get('a','FAILED')).encode('utf-8'))
                     except Exception as ex:
                         m = str(ex) + "\n" + traceback.format_exc()    
                         #print 'CodeDemo Exception ' + str(m)
-                        self.wfile.write('EXCEPTION: ' + str(m))
+                        self.wfile.write(('EXCEPTION: ' + str(m)).encode('utf-8'))
                 elif qvar == 'EvaluateCode':
-                    code = urlparse.parse_qs(post_data)['code'][0]
+                    code = parse_qs(post_data)['code'][0]
                     try:
                         compile(code,'evaluatecode','exec')                    
                         d = { 'Text': 'SUCCESS' }
                         r = json.dumps(d)
                         #print 'EvaluateCode success ' + r
-                        self.wfile.write(r)
+                        self.wfile.write(r.encode('utf-8'))
                     except Exception as ex:
                         import sys
                         tbm = traceback.format_exc()
@@ -144,7 +143,7 @@ class MonolithHandler(BaseHTTPRequestHandler):
                             "Text": str(ex)
                             }
                         jret = json.dumps(ret)
-                        self.wfile.write(jret)
+                        self.wfile.write(jret.encode('utf-8'))
                 else:
                     print ('Unknown request ' + str(qs['req']))
             else:
@@ -154,7 +153,7 @@ class MonolithHandler(BaseHTTPRequestHandler):
             print ('POST unknown path ' + uripath)
 
 # Note this requires a request after you press cntrl-C
-class StoppableHTTPServer(SocketServer.TCPServer):
+class StoppableHTTPServer(socketserver.TCPServer):
     def run(self):
         try:
             self.serve_forever()

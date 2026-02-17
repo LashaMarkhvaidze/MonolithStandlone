@@ -1,4 +1,11 @@
-import pypyodbc as pyodbc
+try:
+    # pypyodbc is only required for optional remote DB features and is
+    # Windows / ODBC specific. On macOS / non-Windows we skip importing it
+    # so the local SQLite-backed editor can still run.
+    import pypyodbc as pyodbc  # type: ignore
+except Exception:
+    pyodbc = None
+
 import sqlite3
 from sqlite3 import Error
 import json
@@ -318,6 +325,10 @@ class dbhelper(object):
 
     ##################################### Remote DB Code ##############################################
     def populateremote(self):
+        # If pypyodbc is unavailable (e.g. on macOS), skip remote DB population.
+        if pyodbc is None:
+            return []
+
         conn = self.lconn()
         c = conn.cursor()
         s = "SELECT remoteid, remotename, remotecs from remote"

@@ -5,14 +5,44 @@ Monolith is a standalone web based python editor.  This project was created beca
 
 All code is saved in a Sqllite3 database.
 
-Code is designed to be compatible with IronPython so version 2.7 is what its currently using now.  
+Code was originally designed to be compatible with IronPython 2.7, but this fork has been updated to run on standard Python 3 (and tested on macOS).
 
 ## How to run
-```
+
+### macOS / Linux / Windows (Python 3)
+
+1. Install Python 3 (e.g. via Homebrew on macOS: `brew install python`).
+2. Create and activate a virtual environment in the project folder:
+
+   ```bash
+   python3 -m venv .venv
+   source .venv/bin/activate
+   ```
+
+3. Install dependencies:
+
+   ```bash
+   python -m pip install -r requirements.txt
+   ```
+
+4. Start the server:
+
+   ```bash
+   python MonolithStandalone.py
+   ```
+
+5. Open a browser to `http://localhost:8000`.
+
+### Original IronPython 2.7 (Windows-only, legacy)
+
+The original project targeted IronPython 2.7 and `pypyodbc` for remote database features. If you need that legacy setup on Windows, use the original instructions from upstream:
+
+```bash
 pip install pypyodbc
 ipy MonolithStandalone.py
 ```
-Open browser to http://localhost:8000
+
+Then open a browser to `http://localhost:8000`.
 
 To run an application designed in Monolith, where 5 is the codeid shown in the editor.
 ```

@@ -33,7 +33,7 @@ class PythonRunner(object):
         setattr(mymod,'PythonGetCode',PythonRunner.PythonGetCode)
         setattr(mymod,'LogError',PythonRunner.LogError)
         if d: 
-            for k,v in d.iteritems():
+            for k,v in d.items():
                 setattr(mymod,k,v)
         exec(code,mymod.__dict__)
         return mymod
