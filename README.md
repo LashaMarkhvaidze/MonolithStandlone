@@ -1,7 +1,8 @@
 # MonolithStandlone
+
 ![](https://github.com/ktmdan/MonolithStandlone/workflows/Python%20application/badge.svg)
 
-Monolith is a standalone web based python editor.  This project was created because we needed a way to run one off processes and have complete history of the code base.  This could easily be done with Git or the like but the advantage is that this can execute code off a central remote repository (this is still being worked on.)
+Monolith is a standalone web based python editor. This project was created because we needed a way to run one off processes and have complete history of the code base. This could easily be done with Git or the like but the advantage is that this can execute code off a central remote repository (this is still being worked on.)
 
 All code is saved in a Sqllite3 database.
 
@@ -9,20 +10,33 @@ Code was originally designed to be compatible with IronPython 2.7, but this fork
 
 ## How to run
 
-### macOS / Linux / Windows (Python 3)
+### Quick Start (Recommended)
+
+```bash
+./start.sh
+```
+
+Then open `http://localhost:8000`
+
+The start script automatically:
+- Creates virtual environment if needed
+- Installs dependencies (openai, anthropic)
+- Starts the server
+
+### Manual Setup
 
 1. Install Python 3 (e.g. via Homebrew on macOS: `brew install python`).
 2. Create and activate a virtual environment in the project folder:
 
    ```bash
-   python3 -m venv .venv
-   source .venv/bin/activate
+   python3 -m venv venv
+   source venv/bin/activate
    ```
 
 3. Install dependencies:
 
    ```bash
-   python -m pip install -r requirements.txt
+   pip install -r requirements.txt
    ```
 
 4. Start the server:
@@ -45,19 +59,23 @@ ipy MonolithStandalone.py
 Then open a browser to `http://localhost:8000`.
 
 To run an application designed in Monolith, where 5 is the codeid shown in the editor.
+
 ```
 ipy -c "from PythonRunner import PythonRunner as pr;m=pr.PythonGetAndRun('5');print m.Test();"
 ```
 
 ## Custom Injected Commands
+
 PythonGetAndRun(codeid) : get the code and return it as a script object
+
 ```
 m = PythonGetAndRun(5)
 r = m.Test()
 LogError(r)
 ```
 
-PythonGetAndRunDict(codeid,dict) : run the code adding dict to the global dictionary 
+PythonGetAndRunDict(codeid,dict) : run the code adding dict to the global dictionary
+
 ```
 l = { 'version': 1 }
 m = PythonGetAndRunDict(5,l)
@@ -66,6 +84,7 @@ LogError(r)
 ```
 
 PythonGetCode(codeid) : Get just the code
+
 ```
 code = PythonGetCode(5)
 LogError(code)

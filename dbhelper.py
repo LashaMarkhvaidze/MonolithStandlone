@@ -55,6 +55,16 @@ create table if not exists remote (
 )
 """
 
+aisettings_create_sql = """
+create table if not exists aisettings (
+    settingid integer primary key AUTOINCREMENT,
+    provider text not null,
+    apikey text not null,
+    model text not null,
+    isactive integer not null default 0
+)
+"""
+
 folder_init_sql = """
 insert into folder (foldername)
 select 'Local' 
@@ -85,6 +95,7 @@ class dbhelper(object):
             c.execute(folder_init_sql)
             c.execute(code_init_sql)
             c.execute(remote_create_sql)
+            c.execute(aisettings_create_sql)
             conn.commit()
         except Error as e:
             traceback.print_exc(file=sys.stdout)
@@ -404,6 +415,58 @@ class dbhelper(object):
         cursor.close()
         db.close()
         return ret
+
+    ##################################### AI Settings Code ##############################################
+    def SaveAISettings(self, provider, apikey, model):
+        if not provider or not apikey or not model: 
+            return json.dumps({'status': 'FAILED', 'message': 'Missing required fields'})
+        conn = self.lconn()
+        c = conn.cursor()
+        # Deactivate all existing settings
+        c.execute("UPDATE aisettings SET isactive = 0")
+        # Insert new setting as active
+        s = "INSERT INTO aisettings (provider, apikey, model, isactive) VALUES (?, ?, ?, 1)"
+        c.execute(s, [provider, apikey, model])
+        if not c.rowcount: 
+            if conn: conn.close()
+            return json.dumps({'status': 'FAILED', 'message': 'Failed to save AI settings'})
+        conn.commit()
+        if conn: conn.close()
+        return json.dumps({'status': 'SUCCESS'})
+
+    def GetActiveAISettings(self):
+        conn = self.lconn()
+        c = conn.cursor()
+        s = "SELECT provider, apikey, model FROM aisettings WHERE isactive = 1 ORDER BY settingid DESC LIMIT 1"
+        c.execute(s)
+        row = c.fetchone()
+        if conn: conn.close()
+        if not row:
+            return json.dumps({'status': 'NONE'})
+        return json.dumps({
+            'status': 'SUCCESS',
+            'provider': row[0],
+            'apikey': row[1],
+            'model': row[2]
+        })
+
+    def GetAllAISettings(self):
+        conn = self.lconn()
+        c = conn.cursor()
+        s = "SELECT settingid, provider, apikey, model, isactive FROM aisettings ORDER BY settingid DESC"
+        c.execute(s)
+        rows = c.fetchall()
+        if conn: conn.close()
+        settings = []
+        for r in rows:
+            settings.append({
+                'id': r[0],
+                'provider': r[1],
+                'apikey': r[2][:10] + '...' if len(r[2]) > 10 else r[2],  # Mask API key
+                'model': r[3],
+                'isactive': r[4]
+            })
+        return json.dumps(settings)
 
     def remoterecursive(self,rows,thisrow,remoteid):
         ret = []

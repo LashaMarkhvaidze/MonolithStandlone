@@ -23,8 +23,11 @@ class PythonRunner(object):
 
     @staticmethod
     def PythonRunDict(codeid,code,d=None):
-        import imp,sys
-        mymod = imp.new_module('dynamic_' + str(codeid))
+        import sys
+        from types import ModuleType
+        
+        # Create new module using types.ModuleType (replacement for imp.new_module)
+        mymod = ModuleType('dynamic_' + str(codeid))
         setattr(mymod,'PythonRunDict',PythonRunner.PythonRunDict)
         setattr(mymod,'PythonGetAndRunDict',PythonRunner.PythonGetAndRunDict)
         setattr(mymod,'PythonGetAndRun',PythonRunner.PythonGetAndRun)

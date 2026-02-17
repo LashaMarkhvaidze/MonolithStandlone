@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <!--
 ACE Editor: http://ace.c9.io/#nav=api&api=edit_session
 W2UI: http://w2ui.com/web/docs/w2sidebar.hide
@@ -142,6 +142,102 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
             white-space: pre;
             word-wrap: break-word;
             z-index: 999999;
+        }
+
+        #aiChatPanel {
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            height: 100%;
+            padding: 10px;
+        }
+
+        #aiChatMessages {
+            background: #f9f9f9;
+            border: 1px solid #ddd;
+            border-radius: 3px;
+            flex: 1;
+            margin-bottom: 10px;
+            overflow-y: auto;
+            padding: 10px;
+        }
+
+        .ai-message {
+            background: #e3f2fd;
+            border-left: 3px solid #2196F3;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            padding: 8px;
+        }
+
+        .user-message {
+            background: #f5f5f5;
+            border-left: 3px solid #666;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            padding: 8px;
+        }
+
+        .error-message {
+            background: #ffebee;
+            border-left: 3px solid #f44336;
+            border-radius: 3px;
+            margin-bottom: 10px;
+            padding: 8px;
+        }
+
+        #aiChatInput {
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-family: Arial, sans-serif;
+            font-size: 14px;
+            margin-bottom: 10px;
+            padding: 8px;
+            resize: vertical;
+            width: 100%;
+        }
+
+        .ai-button {
+            background: #4679bd;
+            border: none;
+            border-radius: 3px;
+            color: white;
+            cursor: pointer;
+            font-size: 14px;
+            margin-right: 5px;
+            padding: 8px 15px;
+        }
+
+        .ai-button:hover {
+            background: #3a6ba5;
+        }
+
+        .ai-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+
+        #aiSettingsPanel {
+            margin-bottom: 10px;
+        }
+
+        #aiSettingsPanel select, #aiSettingsPanel input {
+            border: 1px solid #ccc;
+            border-radius: 3px;
+            font-size: 14px;
+            margin-bottom: 5px;
+            padding: 5px;
+            width: 100%;
+        }
+
+        #aiSettingsPanel label {
+            display: block;
+            font-weight: bold;
+            margin-bottom: 3px;
+            margin-top: 8px;
         }
     </style>
 </head>
@@ -287,10 +383,58 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
         <div id="dHistoryHead" style="height: 25px"></div>
         <div id="dHistoryBody" style="height: 90%"></div>
     </div>
+    <div id="tabAIChat" class="tab">
+    </div>
 </div>
 
 <div id="bottomDiv" style="display: none">
     Filter List...<br> <input type="text" id="txtSideFilter" onkeydown="return txtSideFilterDown(event);"/> <button type="button" onclick="filterTree();">Filter</button>
+</div>
+
+<div id="aiChatContent" style="display: none">
+    <div id="aiChatPanel">
+        <div id="aiSettingsPanel">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3 style="margin-top: 0;">AI Assistant Settings</h3>
+                <button class="ai-button" onclick="toggleAISettings()" style="font-size: 12px; padding: 4px 8px;">Hide</button>
+            </div>
+            
+            <div id="aiSettingsContent">
+                <label>Provider:</label>
+                <select id="aiProvider">
+                    <option value="openai">OpenAI</option>
+                    <option value="claude">Claude (Anthropic)</option>
+                </select>
+                
+                <label>API Key:</label>
+                <input type="password" id="aiApiKey" placeholder="Enter your API key">
+                
+                <button class="ai-button" onclick="fetchAIModels()" id="btnFetchModels">Fetch Available Models</button>
+                
+                <div id="aiModelSection" style="display: none;">
+                    <label>Model:</label>
+                    <select id="aiModel">
+                        <option value="">Select a model...</option>
+                    </select>
+                    
+                    <button class="ai-button" onclick="saveAISettings()">Save Settings</button>
+                    <button class="ai-button" onclick="loadAISettings()">Load Settings</button>
+                </div>
+                <hr>
+            </div>
+        </div>
+        
+        <h3>AI Chat</h3>
+        <div id="aiChatMessages"></div>
+        
+        <textarea id="aiChatInput" rows="3" placeholder="Ask AI to refactor your code... (e.g., 'Add error handling', 'Optimize this function', 'Add comments')"></textarea>
+        
+        <div>
+            <button class="ai-button" onclick="sendAIChat()">Send</button>
+            <button class="ai-button" onclick="applyAICode()">Apply to Editor</button>
+            <button class="ai-button" onclick="clearAIChat()">Clear Chat</button>
+        </div>
+    </div>
 </div>
 
 <script src="ace/ace.js" type="text/javascript" charset="utf-8"></script>
@@ -340,6 +484,9 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
                             }, {
                                 id: 'tabHistory',
                                 caption: 'History',
+                            }, {
+                                id: 'tabAIChat',
+                                caption: 'AI Chat',
                             }
                         ],
                         onClick: tabClickEvent
@@ -644,6 +791,8 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
         if (event.target === "tabHistory") {
             if (openScriptId != undefined)
                 historyTabLoad(openScriptId);
+        } else if (event.target === "tabAIChat") {
+            initAIChat();
         }
     }
 
@@ -1715,6 +1864,255 @@ W2UI: http://w2ui.com/web/docs/w2sidebar.hide
     //    }
     //  }
     //}
+
+    // ============== AI Chat Functions ==============
+    var lastAIResponse = '';
+    var aiChatInitialized = false;
+
+    function initAIChat() {
+        if (!aiChatInitialized) {
+            $('.w2ui-panel-content #tabAIChat').html($('#aiChatContent').html());
+            aiChatInitialized = true;
+            loadAISettings();
+        }
+    }
+
+    function saveAISettings() {
+        var provider = $('.w2ui-panel-content #aiProvider').val();
+        var model = $('.w2ui-panel-content #aiModel').val();
+        var apikey = $('.w2ui-panel-content #aiApiKey').val();
+
+        if (!provider || !apikey) {
+            addAIMessage('Please select provider and enter API key', 'error');
+            return;
+        }
+        
+        if (!model) {
+            addAIMessage('Please fetch models and select one first', 'error');
+            return;
+        }
+
+        $.ajax({
+            url: "WebApi.ashx?req=SaveAISettings",
+            dataType: 'json',
+            type: "POST",
+            data: "provider=" + encodeURIComponent(provider) + 
+                  "&model=" + encodeURIComponent(model) + 
+                  "&apikey=" + encodeURIComponent(apikey)
+        }).done(function(data) {
+            console.log('SaveAISettings response:', data);
+            if (data.status === 'SUCCESS') {
+                addAIMessage('✓ Settings saved successfully! You can now hide settings and start chatting.', 'ai');
+            } else {
+                addAIMessage('Failed to save settings: ' + (data.message || 'Unknown error'), 'error');
+            }
+        }).fail(function(xhr, status, error) {
+            console.error('SaveAISettings failed:', status, error, xhr.responseText);
+            addAIMessage('Failed to save settings: ' + status + ' - ' + error + '. Check console for details.', 'error');
+        });
+    }
+
+    function loadAISettings() {
+        $.ajax({
+            url: "WebApi.ashx?req=GetAISettings",
+            dataType: 'json',
+            type: "POST"
+        }).done(function(data) {
+            console.log('GetAISettings response:', data);
+            if (data.status === 'SUCCESS') {
+                $('.w2ui-panel-content #aiProvider').val(data.provider);
+                $('.w2ui-panel-content #aiApiKey').val(data.apikey);
+                
+                // Show model section and set model
+                var modelSelect = $('.w2ui-panel-content #aiModel');
+                modelSelect.empty();
+                modelSelect.append('<option value="' + data.model + '">' + data.model + '</option>');
+                $('.w2ui-panel-content #aiModelSection').show();
+                
+                addAIMessage('✓ Settings loaded successfully!', 'ai');
+            } else if (data.status === 'NONE') {
+                addAIMessage('No saved settings found. Please configure your AI settings.', 'ai');
+            }
+        }).fail(function(xhr, status, error) {
+            console.error('GetAISettings failed:', status, error, xhr.responseText);
+            addAIMessage('Failed to load settings: ' + status + ' - ' + error, 'error');
+        });
+    }
+
+    function sendAIChat() {
+        var prompt = $('.w2ui-panel-content #aiChatInput').val();
+        if (!prompt) {
+            addAIMessage('Please enter a prompt', 'error');
+            return;
+        }
+
+        var currentCode = editor.getValue();
+        if (!currentCode) {
+            addAIMessage('No code in editor to refactor', 'error');
+            return;
+        }
+
+        addAIMessage('You: ' + prompt, 'user');
+        addAIMessage('AI is thinking...', 'ai');
+
+        var sendButton = $('.w2ui-panel-content button:contains("Send")');
+        sendButton.prop('disabled', true);
+
+        $.ajax({
+            url: "WebApi.ashx?req=AIChat",
+            dataType: 'json',
+            type: "POST",
+            data: "prompt=" + encodeURIComponent(prompt) + 
+                  "&code=" + encodeURIComponent(currentCode),
+            timeout: 60000
+        }).done(function(data) {
+            // Remove "thinking" message
+            var messages = $('.w2ui-panel-content #aiChatMessages .ai-message');
+            if (messages.last().text() === 'AI is thinking...') {
+                messages.last().remove();
+            }
+
+            if (data.status === 'SUCCESS') {
+                lastAIResponse = data.code;
+                addAIMessage('AI: Here is the refactored code. Click "Apply to Editor" to use it.', 'ai');
+                
+                // Show preview of code
+                var preview = data.code.substring(0, 200);
+                if (data.code.length > 200) preview += '...';
+                addAIMessage('Preview:\n' + preview, 'ai');
+            } else {
+                addAIMessage('Error: ' + data.message, 'error');
+            }
+            sendButton.prop('disabled', false);
+        }).fail(function(xhr, status) {
+            // Remove "thinking" message
+            var messages = $('.w2ui-panel-content #aiChatMessages .ai-message');
+            if (messages.last().text() === 'AI is thinking...') {
+                messages.last().remove();
+            }
+            addAIMessage('Request failed: ' + status, 'error');
+            sendButton.prop('disabled', false);
+        });
+
+        $('.w2ui-panel-content #aiChatInput').val('');
+    }
+
+    function applyAICode() {
+        if (!lastAIResponse) {
+            addAIMessage('No AI response to apply', 'error');
+            return;
+        }
+
+        editor.setValue(lastAIResponse);
+        editor.clearSelection();
+        addAIMessage('Code applied to editor!', 'ai');
+    }
+
+    function clearAIChat() {
+        $('.w2ui-panel-content #aiChatMessages').empty();
+        lastAIResponse = '';
+    }
+
+    function addAIMessage(message, type) {
+        var className = type === 'error' ? 'error-message' : 
+                       type === 'user' ? 'user-message' : 'ai-message';
+        var msgDiv = $('<div>').addClass(className).text(message);
+        $('.w2ui-panel-content #aiChatMessages').append(msgDiv);
+        
+        // Scroll to bottom
+        var chatDiv = $('.w2ui-panel-content #aiChatMessages');
+        chatDiv.scrollTop(chatDiv[0].scrollHeight);
+    }
+
+    function toggleAISettings() {
+        var content = $('.w2ui-panel-content #aiSettingsContent');
+        var btn = $('.w2ui-panel-content #aiSettingsPanel button:contains("Hide"), .w2ui-panel-content #aiSettingsPanel button:contains("Show")');
+        
+        if (content.is(':visible')) {
+            content.slideUp();
+            btn.text('Show');
+        } else {
+            content.slideDown();
+            btn.text('Hide');
+        }
+    }
+
+    function fetchAIModels() {
+        var provider = $('.w2ui-panel-content #aiProvider').val();
+        var apikey = $('.w2ui-panel-content #aiApiKey').val();
+        
+        if (!provider) {
+            addAIMessage('Please select a provider first', 'error');
+            return;
+        }
+        
+        if (!apikey) {
+            addAIMessage('Please enter your API key first', 'error');
+            return;
+        }
+        
+        addAIMessage('Fetching available models from ' + provider + '...', 'ai');
+        
+        var btn = $('.w2ui-panel-content #btnFetchModels');
+        btn.prop('disabled', true).text('Fetching...');
+        
+        $.ajax({
+            url: "WebApi.ashx?req=GetAIModels",
+            dataType: 'json',
+            type: "POST",
+            data: "provider=" + encodeURIComponent(provider) + 
+                  "&apikey=" + encodeURIComponent(apikey),
+            timeout: 60000
+        }).done(function(data) {
+            console.log('GetAIModels response:', data);
+            if (data.status === 'SUCCESS') {
+                var modelSelect = $('.w2ui-panel-content #aiModel');
+                modelSelect.empty();
+                
+                if (data.models && data.models.length > 0) {
+                    data.models.forEach(function(model) {
+                        var displayName = model.name || model.id;
+                        modelSelect.append('<option value="' + model.id + '">' + displayName + '</option>');
+                    });
+                    addAIMessage('✓ Found ' + data.models.length + ' available models!', 'ai');
+                    
+                    // Show model selection section
+                    $('.w2ui-panel-content #aiModelSection').slideDown();
+                } else {
+                    addAIMessage('No models found.', 'error');
+                }
+            } else {
+                addAIMessage('Failed to fetch models: ' + (data.message || 'Unknown error'), 'error');
+            }
+            btn.prop('disabled', false).text('Fetch Available Models');
+        }).fail(function(xhr, status, error) {
+            console.error('GetAIModels failed:', status, error, xhr.responseText);
+            addAIMessage('Failed to fetch models: ' + status + ' - ' + error, 'error');
+            btn.prop('disabled', false).text('Fetch Available Models');
+        });
+    }
+    
+    function updateModelOptionsForProvider(provider) {
+        var modelSelect = $('.w2ui-panel-content #aiModel');
+        modelSelect.empty();
+        
+        if (provider === 'openai') {
+            modelSelect.append('<option value="gpt-4">GPT-4</option>');
+            modelSelect.append('<option value="gpt-4-turbo">GPT-4 Turbo</option>');
+            modelSelect.append('<option value="gpt-4-turbo-preview">GPT-4 Turbo Preview</option>');
+            modelSelect.append('<option value="gpt-3.5-turbo">GPT-3.5 Turbo</option>');
+        } else if (provider === 'claude') {
+            modelSelect.append('<option value="claude-3-5-sonnet-20241022">Claude 3.5 Sonnet (Latest - Recommended)</option>');
+            modelSelect.append('<option value="claude-3-5-sonnet-20240620">Claude 3.5 Sonnet (June 2024)</option>');
+            modelSelect.append('<option value="claude-3-haiku-20240307">Claude 3 Haiku (Fast & Cheap)</option>');
+        }
+    }
+
+    // Update model options when provider changes
+    $(document).on('change', '#aiProvider', function() {
+        var provider = $(this).val();
+        updateModelOptionsForProvider(provider);
+    });
 </script>
 </body>
 </html>

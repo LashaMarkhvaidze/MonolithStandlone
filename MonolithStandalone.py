@@ -60,13 +60,17 @@ class MonolithHandler(BaseHTTPRequestHandler):
     def do_POST(self):
         content_length = int(self.headers['Content-Length']) # <--- Gets the size of data
         post_data = self.rfile.read(content_length).decode('utf-8') # <--- Gets the data itself
-        self._set_headers()
         uripath = self.path
         #POST /WebApi.ashx?req=Tree&xxxallowexception=1
         if uripath.lower().startswith("/webapi.ashx"):
             qs = parse_qs(urlparse(uripath).query)
             if 'req' in qs:
                 qvar = qs['req'][0]
+                # Set content type based on request type - must be done before writing
+                if qvar in ['SaveAISettings', 'GetAISettings', 'AIChat', 'GetAIModels']:
+                    self._set_headers('application/json')
+                else:
+                    self._set_headers('text/html')
                 if qvar == 'Tree':
                     r = self.db.GetTreePath(None)
                     self.wfile.write(r.encode('utf-8'))
@@ -144,6 +148,178 @@ class MonolithHandler(BaseHTTPRequestHandler):
                             }
                         jret = json.dumps(ret)
                         self.wfile.write(jret.encode('utf-8'))
+                elif qvar == 'SaveAISettings':
+                    try:
+                        params = parse_qs(post_data)
+                        provider = params.get('provider', [''])[0]
+                        apikey = params.get('apikey', [''])[0]
+                        model = params.get('model', [''])[0]
+                        print(f"SaveAISettings: provider={provider}, model={model}, apikey={'***' if apikey else 'empty'}")
+                        r = self.db.SaveAISettings(provider, apikey, model)
+                        print(f"SaveAISettings response: {r}")
+                        self.wfile.write(r.encode('utf-8'))
+                    except Exception as ex:
+                        error_response = json.dumps({'status': 'FAILED', 'message': str(ex)})
+                        print(f"SaveAISettings error: {ex}")
+                        self.wfile.write(error_response.encode('utf-8'))
+                    return
+                elif qvar == 'GetAISettings':
+                    try:
+                        r = self.db.GetActiveAISettings()
+                        print(f"GetAISettings response: {r}")
+                        self.wfile.write(r.encode('utf-8'))
+                    except Exception as ex:
+                        error_response = json.dumps({'status': 'FAILED', 'message': str(ex)})
+                        print(f"GetAISettings error: {ex}")
+                        self.wfile.write(error_response.encode('utf-8'))
+                    return
+                elif qvar == 'GetAIModels':
+                    try:
+                        params = parse_qs(post_data)
+                        provider = params.get('provider', [''])[0]
+                        apikey = params.get('apikey', [''])[0]
+                        
+                        if not provider or not apikey:
+                            self.wfile.write(json.dumps({'status': 'FAILED', 'message': 'Provider and API key required'}).encode('utf-8'))
+                            return
+                        
+                        models = []
+                        if provider == 'openai':
+                            try:
+                                import openai
+                                client = openai.OpenAI(api_key=apikey)
+                                
+                                # Fetch available models from OpenAI API
+                                print(f"Fetching OpenAI models from API...")
+                                models_response = client.models.list()
+                                
+                                # Filter for chat models (GPT models)
+                                for model in models_response.data:
+                                    model_id = model.id.lower()
+                                    if 'gpt' in model_id:
+                                        # Create friendly name
+                                        name = model.id
+                                        if 'gpt-4' in model_id:
+                                            if 'turbo' in model_id:
+                                                name = f"GPT-4 Turbo ({model.id})"
+                                            elif 'vision' in model_id:
+                                                name = f"GPT-4 Vision ({model.id})"
+                                            else:
+                                                name = f"GPT-4 ({model.id})"
+                                        elif 'gpt-3.5' in model_id:
+                                            name = f"GPT-3.5 ({model.id})"
+                                        
+                                        models.append({
+                                            'id': model.id,
+                                            'name': name,
+                                            'created': model.created
+                                        })
+                                        print(f"  ✓ {model.id}")
+                                
+                                # Sort by creation date (newest first)
+                                models.sort(key=lambda x: x['created'], reverse=True)
+                                
+                                if not models:
+                                    self.wfile.write(json.dumps({'status': 'FAILED', 'message': 'No GPT models available with this API key'}).encode('utf-8'))
+                                    return
+                            except Exception as ex:
+                                self.wfile.write(json.dumps({'status': 'FAILED', 'message': f'OpenAI error: {str(ex)}'}).encode('utf-8'))
+                                return
+                        elif provider == 'claude':
+                            try:
+                                import anthropic
+                                client = anthropic.Anthropic(api_key=apikey)
+                                
+                                # Fetch available models from Claude API
+                                print(f"Fetching Claude models from API...")
+                                models_response = client.models.list()
+                                
+                                for model in models_response.data:
+                                    models.append({
+                                        'id': model.id,
+                                        'name': model.display_name if hasattr(model, 'display_name') else model.id,
+                                        'created': 0
+                                    })
+                                    print(f"  ✓ {model.id}")
+                                
+                                if not models:
+                                    self.wfile.write(json.dumps({'status': 'FAILED', 'message': 'No Claude models available with this API key'}).encode('utf-8'))
+                                    return
+                            except Exception as ex:
+                                self.wfile.write(json.dumps({'status': 'FAILED', 'message': f'Claude error: {str(ex)}'}).encode('utf-8'))
+                                return
+                        else:
+                            self.wfile.write(json.dumps({'status': 'FAILED', 'message': 'Unknown provider'}).encode('utf-8'))
+                            return
+                        
+                        self.wfile.write(json.dumps({'status': 'SUCCESS', 'models': models}).encode('utf-8'))
+                    except Exception as ex:
+                        error_response = json.dumps({'status': 'FAILED', 'message': str(ex)})
+                        print(f"GetAIModels error: {ex}")
+                        traceback.print_exc()
+                        self.wfile.write(error_response.encode('utf-8'))
+                    return
+                elif qvar == 'AIChat':
+                    params = parse_qs(post_data)
+                    prompt = params.get('prompt', [''])[0]
+                    code = params.get('code', [''])[0]
+                    try:
+                        settings_json = self.db.GetActiveAISettings()
+                        settings = json.loads(settings_json)
+                        if settings.get('status') != 'SUCCESS':
+                            self.wfile.write(json.dumps({'status': 'FAILED', 'message': 'No AI settings configured'}).encode('utf-8'))
+                            return
+                        
+                        provider = settings['provider']
+                        apikey = settings['apikey']
+                        model = settings['model']
+                        
+                        full_prompt = f"Here is the code:\n\n{code}\n\nUser request: {prompt}\n\nPlease provide the refactored code. Return ONLY the code without explanations."
+                        
+                        if provider == 'openai':
+                            import openai
+                            client = openai.OpenAI(api_key=apikey)
+                            response = client.chat.completions.create(
+                                model=model,
+                                messages=[
+                                    {"role": "system", "content": "You are a code refactoring assistant. Return only code without explanations or markdown formatting."},
+                                    {"role": "user", "content": full_prompt}
+                                ]
+                            )
+                            result = response.choices[0].message.content
+                        elif provider == 'claude':
+                            import anthropic
+                            client = anthropic.Anthropic(api_key=apikey)
+                            response = client.messages.create(
+                                model=model,
+                                max_tokens=4096,
+                                messages=[
+                                    {"role": "user", "content": full_prompt}
+                                ]
+                            )
+                            result = response.content[0].text
+                        else:
+                            self.wfile.write(json.dumps({'status': 'FAILED', 'message': 'Unknown provider'}).encode('utf-8'))
+                            return
+                        
+                        # Clean up code blocks if present
+                        if '```' in result:
+                            lines = result.split('\n')
+                            code_lines = []
+                            in_code = False
+                            for line in lines:
+                                if line.strip().startswith('```'):
+                                    in_code = not in_code
+                                    continue
+                                if in_code or not any(line.strip().startswith(x) for x in ['```']):
+                                    code_lines.append(line)
+                            result = '\n'.join(code_lines).strip()
+                        
+                        self.wfile.write(json.dumps({'status': 'SUCCESS', 'code': result}).encode('utf-8'))
+                    except Exception as ex:
+                        error_msg = str(ex) + "\n" + traceback.format_exc()
+                        self.wfile.write(json.dumps({'status': 'FAILED', 'message': error_msg}).encode('utf-8'))
+                    return
                 else:
                     print ('Unknown request ' + str(qs['req']))
             else:
